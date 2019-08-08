@@ -1,16 +1,19 @@
 #pragma once
 #include "Clipboard_Lite.h"
 
-#include <functional>
+//#include <functional>
 #include <string>
 
 #define WIN32_LEAN_AND_MEAN
-#include <atomic>
-#include <mutex>
+//#include <atomic>
+//#include <mutex>
 #include <tchar.h>
-#include <thread>
+//#include <thread>
 #include <vector>
 #include <windows.h>
+
+#include "common/thread.hpp"
+
 
 namespace SL {
 namespace Clipboard_Lite {
@@ -19,10 +22,10 @@ namespace Clipboard_Lite {
     // HELPERS
     class ClipWrapper {
         HWND Hwnd;
-        BOOL Opened = FALSE;
+        BOOL Opened;
 
       public:
-        ClipWrapper(HWND h) : Hwnd(h) { Opened = OpenClipboard(Hwnd); }
+        ClipWrapper(HWND h) : Hwnd(h), Opened(FALSE) { Opened = OpenClipboard(Hwnd); }
         operator bool() { return Opened == TRUE; }
         ~ClipWrapper()
         {
@@ -36,11 +39,11 @@ namespace Clipboard_Lite {
         GlobalLockWrapper(void *ptr) : Ptr(ptr) {}
         ~GlobalLockWrapper()
         {
-            if (Ptr != nullptr) {
+            if (Ptr != NULL) {
                 GlobalUnlock(Ptr);
             }
         }
-        operator bool() { return Ptr != nullptr; }
+        operator bool() { return Ptr != NULL; }
         void *Ptr;
     };
     class HDCWrapper {
@@ -48,11 +51,11 @@ namespace Clipboard_Lite {
         HDCWrapper(HDC d) : DC(d) {}
         ~HDCWrapper()
         {
-            if (DC != nullptr) {
+            if (DC != NULL) {
                 DeleteDC(DC);
             }
         }
-        operator bool() { return DC != nullptr; }
+        operator bool() { return DC != NULL; }
         HDC DC;
     };
     class HBITMAPWrapper {
@@ -60,46 +63,40 @@ namespace Clipboard_Lite {
         HBITMAPWrapper(HBITMAP b) : Bitmap(b) {}
         ~HBITMAPWrapper()
         {
-            if (Bitmap != nullptr) {
+            if (Bitmap != NULL) {
                 DeleteObject(Bitmap);
             }
         }
-        operator bool() { return Bitmap != nullptr; }
+        operator bool() { return Bitmap != NULL; }
         HBITMAP Bitmap;
     };
 
-    class Clipboard_Manager : public IClipboard_Manager {
-        std::thread BackGroundWorker;
-        std::atomic<bool> Copying;
-        HWND Hwnd = nullptr;
-
-        void LoadClipImage();
-        void LoadClipText();
-
+    class Clipboard_Manager : public IClipboard_Manager
+    {
       public:
-        std::function<void(const std::string &text)> onText;
-        std::function<void(const Image &image)> onImage;
-
         Clipboard_Manager();
         virtual ~Clipboard_Manager();
 
-        void run();
+        virtual void run();
         virtual void copy(const std::string &test) override;
         virtual void copy(const Image &image) override;
 
-        template <class T> void RestoreClip(const T &buffer, UINT format)
+        inline void RestoreClip(const std::string &buffer, UINT format)
         {
-            if (OpenClipboard(Hwnd) == TRUE) {
-                if (EmptyClipboard() == TRUE && buffer.size() > 0) {
-                    auto hData = GlobalAlloc(GMEM_MOVEABLE, buffer.size());
+            if (OpenClipboard(Hwnd) == TRUE)
+            {
+                if (EmptyClipboard() == TRUE && buffer.size() > 0)
+                {
+                    HGDIOBJ hData = GlobalAlloc(GMEM_MOVEABLE, buffer.size()+1);
                     if (hData) {
-                        auto pData = GlobalLock(hData);
+                        LPTSTR pData = (LPTSTR)GlobalLock(hData);
                         if (pData) {
-                            memcpy(pData, buffer.data(), buffer.size());
+                            memcpy(pData, buffer.c_str(), buffer.size());
+                            pData[buffer.size()]=0;
                             GlobalUnlock(hData);
                             if (::SetClipboardData(format, hData)) {
                                 // clipboard takes ownership of the memory
-                                hData = nullptr;
+                                hData = NULL;
                             }
                         }
                     }
@@ -110,6 +107,16 @@ namespace Clipboard_Lite {
                 CloseClipboard();
             }
         }
+
+
+    private:
+        void LoadClipImage();
+        void LoadClipText();
+        int thread_callback(int param);
+    private:
+        bool Copying;
+        HWND Hwnd;
+        thread* BackGroundWorker;
     };
 } // namespace Clipboard_Lite
 } // namespace SL

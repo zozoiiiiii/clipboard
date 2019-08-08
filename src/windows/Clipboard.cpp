@@ -14,22 +14,27 @@ namespace Clipboard_Lite {
         if (Hwnd) {
             PostMessage(Hwnd, WM_QUIT, 0, 0);
         }
-        if (BackGroundWorker.joinable()) {
-            BackGroundWorker.join();
+        if (BackGroundWorker)
+        {
+            BackGroundWorker->join();
+            delete BackGroundWorker;
+            BackGroundWorker = NULL;
         }
     }
 
     void Clipboard_Manager::LoadClipImage()
     {
-        auto c = ClipWrapper(Hwnd);
+        bool c = ClipWrapper(Hwnd);
         if (!c)
             return;
-        if (IsClipboardFormatAvailable(CF_BITMAP) || IsClipboardFormatAvailable(CF_DIB) || IsClipboardFormatAvailable(CF_DIBV5)) {
+
+        if (IsClipboardFormatAvailable(CF_BITMAP) || IsClipboardFormatAvailable(CF_DIB) || IsClipboardFormatAvailable(CF_DIBV5))
+        {
             HANDLE hClipboard = (BITMAPINFO *)GetClipboardData(CF_DIB);
             if (hClipboard) {
                 GlobalLockWrapper dib(GlobalLock(hClipboard));
                 if (dib) {
-                    auto info = reinterpret_cast<LPBITMAPINFO>(dib.Ptr);
+                    LPBITMAPINFO info = reinterpret_cast<LPBITMAPINFO>(dib.Ptr);
                     Image img;
                     img.Width = info->bmiHeader.biWidth;
                     img.Height = info->bmiHeader.biHeight;
@@ -38,27 +43,26 @@ namespace Clipboard_Lite {
                     if ((info->bmiHeader.biBitCount == 24 || info->bmiHeader.biBitCount == 32) && info->bmiHeader.biCompression == BI_RGB &&
                         info->bmiHeader.biClrUsed == 0) {
 
-                        img.Data = std::shared_ptr<unsigned char>(new unsigned char[info->bmiHeader.biSizeImage], [](unsigned char *p) {
-                            if (p)
-                                delete[] p;
-                        });
-                        memcpy(img.Data.get(), (info + 1), info->bmiHeader.biSizeImage);
+                        img.Data = new unsigned char[info->bmiHeader.biSizeImage];
+                        memcpy(img.Data, (info + 1), info->bmiHeader.biSizeImage);
 
-                        auto linewidth = 0;
-                        auto depth = info->bmiHeader.biBitCount / 8;
+                        int linewidth = 0;
+                        int depth = info->bmiHeader.biBitCount / 8;
                         if (depth == 3)
                             linewidth = 4 * ((3 * img.Width + 3) / 4);
                         else
                             linewidth = 4 * img.Width;
 
-                        auto *p = img.Data.get();
+                        unsigned char*p = img.Data;
 
-                        for (int i = img.Height - 1; i >= 0; i--) {
-                            auto r = img.Data.get() + (img.Width * img.PixelStride * i);
-                            for (int j = 0; j < img.Width; j++) {
-                                auto bb = *r++;
-                                auto gg = *r++;
-                                auto rr = *r++;
+                        for (int i = img.Height - 1; i >= 0; i--)
+                        {
+                            unsigned char* r = img.Data + (img.Width * img.PixelStride * i);
+                            for (int j = 0; j < img.Width; j++)
+                            {
+                                int bb = *r++;
+                                int gg = *r++;
+                                int rr = *r++;
                                 *p++ = rr;
                                 *p++ = gg;
                                 *p++ = bb;
@@ -72,7 +76,7 @@ namespace Clipboard_Lite {
                         HDCWrapper capturedc(CreateCompatibleDC(dc.DC));
                         HBITMAPWrapper bitmap(CreateCompatibleBitmap(dc.DC, img.Width, img.Height));
 
-                        auto originalBmp = SelectObject(capturedc.DC, bitmap.Bitmap);
+                        HGDIOBJ originalBmp = SelectObject(capturedc.DC, bitmap.Bitmap);
 
                         void *pDIBBits = (void *)(info->bmiColors);
                         if (info->bmiHeader.biCompression == BI_BITFIELDS)
@@ -92,23 +96,20 @@ namespace Clipboard_Lite {
                         bi.biBitCount = static_cast<WORD>(img.PixelStride * 8);
                         bi.biCompression = BI_RGB;
                         bi.biSizeImage = ((img.Width * bi.biBitCount + 31) / (img.PixelStride * 8)) * img.PixelStride * img.Height;
-                        img.Data = std::shared_ptr<unsigned char>(new unsigned char[bi.biSizeImage], [](unsigned char *p) {
-                            if (p)
-                                delete[] p;
-                        });
+                        img.Data = new unsigned char[bi.biSizeImage];
 
-                        GetDIBits(capturedc.DC, bitmap.Bitmap, 0, (UINT)img.Height, img.Data.get(), (BITMAPINFO *)&bi, DIB_RGB_COLORS);
+                        GetDIBits(capturedc.DC, bitmap.Bitmap, 0, (UINT)img.Height, img.Data, (BITMAPINFO *)&bi, DIB_RGB_COLORS);
 
                         SelectObject(capturedc.DC, originalBmp);
 
-                        auto *p = img.Data.get();
+                        unsigned char*p = img.Data;
 
                         for (int i = 0; i < img.Height; i++) {
-                            auto r = img.Data.get() + (img.Width * img.PixelStride * i);
+                            unsigned char* r = img.Data + (img.Width * img.PixelStride * i);
                             for (int j = 0; j < img.Width; j++) {
-                                auto bb = *r++;
-                                auto gg = *r++;
-                                auto rr = *r++;
+                                int bb = *r++;
+                                int gg = *r++;
+                                int rr = *r++;
                                 *p++ = rr; // we want RGB
                                 *p++ = gg;
                                 *p++ = bb;
@@ -117,67 +118,88 @@ namespace Clipboard_Lite {
                             }
                         }
                     }
-                    onImage(img);
+                    m_pConfiguration->onImage(img);
                 }
             }
         }
     }
     void Clipboard_Manager::LoadClipText()
     {
-        auto c = ClipWrapper(Hwnd);
-        if (!c)
+        if (!IsClipboardFormatAvailable(CF_TEXT))
             return;
-        if (IsClipboardFormatAvailable(CF_TEXT)) {
-            auto h = ::GetClipboardData(CF_TEXT);
-            if (h) {
-                auto pData = GlobalLock(h);
-                auto nLength = GlobalSize(h);
-                if (pData && nLength > 0) {
-                    std::string buffer;
-                    buffer.resize(nLength);
-                    memcpy((void *)buffer.data(), pData, nLength);
-                    GlobalUnlock(h);
-                    onText(buffer);
-                }
-            }
+
+        //bool c = ClipWrapper(Hwnd);
+        //if (!c)
+          //  return;
+
+
+        if (!OpenClipboard(Hwnd)) 
+            return; 
+        HGLOBAL h = ::GetClipboardData(CF_TEXT);
+        if (!h)
+        {
+                return;
+        }
+
+        LPVOID pData = GlobalLock(h);
+        SIZE_T nLength = GlobalSize(h);
+        if (pData && nLength > 0)
+        {
+            std::string buffer;
+            buffer.resize(nLength);
+            memcpy((void *)buffer.data(), pData, nLength);
+            GlobalUnlock(h);
+            m_pConfiguration->onText(buffer);
         }
     }
+
     void Clipboard_Manager::run()
     {
-        BackGroundWorker = std::thread([&] {
+        BackGroundWorker = new thread(&Clipboard_Manager::thread_callback, this, 0, "thread");
+    }
+
+
+    int Clipboard_Manager::thread_callback(int param)
+    {
             WNDCLASSEX wndclass = {};
             memset(&wndclass, 0, sizeof(wndclass));
             wndclass.cbSize = sizeof(WNDCLASSEX);
             wndclass.lpfnWndProc = DefWindowProc;
             wndclass.lpszClassName = _T("myclass");
-            if (RegisterClassEx(&wndclass)) {
-                Hwnd = CreateWindowEx(0, wndclass.lpszClassName, _T("clipwatcher"), 0, 0, 0, 0, 0, HWND_MESSAGE, 0, 0, 0);
-                if (Hwnd) {
-                    if (AddClipboardFormatListener(Hwnd)) {
-                        MSG msg;
-                        while (GetMessage(&msg, Hwnd, 0, 0) != 0) {
-                            if (msg.message == WM_CLIPBOARDUPDATE) {
-                                if (!Copying) {
-                                    if (onText) {
-                                        LoadClipText();
-                                    }
-                                    if (onImage) {
-                                        LoadClipImage();
-                                    }
-                                }
-                                Copying = false;
-                            }
-                            else {
-                                TranslateMessage(&msg);
-                                DispatchMessage(&msg);
-                            }
-                        }
-                        RemoveClipboardFormatListener(Hwnd);
-                    }
-                    UnregisterClass(wndclass.lpszClassName, nullptr);
-                }
+            if (!RegisterClassEx(&wndclass))
+                return 0;
+
+            Hwnd = CreateWindowEx(0, wndclass.lpszClassName, _T("clipwatcher"), 0, 0, 0, 0, 0, HWND_MESSAGE, 0, 0, 0);
+            if (!Hwnd) 
+            {
+                UnregisterClass(wndclass.lpszClassName, NULL);
+                return 0;
             }
-        });
+
+            if (AddClipboardFormatListener(Hwnd))
+            {
+                MSG msg;
+                while (GetMessage(&msg, Hwnd, 0, 0) != 0)
+                {
+                    if (msg.message == WM_CLIPBOARDUPDATE)
+                    {
+                        //if (!Copying) {
+                            if (m_pConfiguration) {
+                                LoadClipText();
+                                LoadClipImage();
+                            }
+                        //}
+                        Copying = false;
+                    }
+                    else {
+                        TranslateMessage(&msg);
+                        DispatchMessage(&msg);
+                    }
+                }
+                RemoveClipboardFormatListener(Hwnd);
+            }
+            UnregisterClass(wndclass.lpszClassName, NULL);
+            return 1;
     }
 
     void Clipboard_Manager::copy(const std::string &text)
@@ -208,7 +230,7 @@ namespace Clipboard_Lite {
         dbmi.bmiColors->rgbReserved = 0;
 
         HDC hdc = ::GetDC(NULL);
-        CreateDIBitmap(hdc, &bmih, CBM_INIT, image.Data.get(), &dbmi, DIB_RGB_COLORS);
+        CreateDIBitmap(hdc, &bmih, CBM_INIT, image.Data, &dbmi, DIB_RGB_COLORS);
         ::ReleaseDC(NULL, hdc);
 
         // HANDLE hData = GlobalAlloc(GHND | GMEM_SHARE,  sizeof(BITMAPINFO) + m_bmi.bmiHeader.biWidth*m_bmi.bmiHeader.biHeight * 3);
@@ -230,7 +252,7 @@ namespace Clipboard_Lite {
         //                GlobalUnlock(hData);
         //                if (::SetClipboardData(CF_BITMAP, hData)) {
         //                    //clipboard takes ownership of the memory
-        //                    hData = nullptr;
+        //                    hData = NULL;
         //                }
         //            }
         //        }

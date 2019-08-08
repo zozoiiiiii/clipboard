@@ -188,7 +188,7 @@ int tje_encode_with_func(tje_write_func* func,
 
 // C std lib
 #include <assert.h>
-#include <inttypes.h>
+#include "common/inttypes.h"
 #include <math.h>   // floorf, ceilf
 #include <stdio.h>  // FILE, puts
 #include <string.h> // memcpy
