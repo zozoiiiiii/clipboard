@@ -14,11 +14,10 @@ namespace Clipboard_Lite {
         if (Hwnd) {
             PostMessage(Hwnd, WM_QUIT, 0, 0);
         }
-        if (BackGroundWorker)
+        if (m_pThread)
         {
-            BackGroundWorker->join();
-            delete BackGroundWorker;
-            BackGroundWorker = NULL;
+            delete m_pThread;
+            m_pThread = NULL;
         }
     }
 
@@ -153,9 +152,16 @@ namespace Clipboard_Lite {
         }
     }
 
+
+    void ThreadFunc(void* lpParameter)
+    {
+        Clipboard_Manager* pManager = (Clipboard_Manager*)lpParameter;
+        pManager->thread_callback(0);
+    }
+
     void Clipboard_Manager::run()
     {
-        BackGroundWorker = new thread(&Clipboard_Manager::thread_callback, this, 0, "thread");
+        m_pThread = new MNThread(&ThreadFunc, this);
     }
 
 

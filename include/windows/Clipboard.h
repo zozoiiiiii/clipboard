@@ -12,7 +12,7 @@
 #include <vector>
 #include <windows.h>
 
-#include "common/thread.hpp"
+#include "platform/mn_thread.h"
 
 
 namespace SL {
@@ -80,6 +80,7 @@ namespace Clipboard_Lite {
         virtual void run();
         virtual void copy(const std::string &test) override;
         virtual void copy(const Image &image) override;
+        int thread_callback(int param);
 
         inline void RestoreClip(const std::string &buffer, UINT format)
         {
@@ -112,11 +113,10 @@ namespace Clipboard_Lite {
     private:
         void LoadClipImage();
         void LoadClipText();
-        int thread_callback(int param);
     private:
         bool Copying;
         HWND Hwnd;
-        thread* BackGroundWorker;
+        MNThread* m_pThread;
     };
 } // namespace Clipboard_Lite
 } // namespace SL
